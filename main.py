@@ -388,7 +388,7 @@ def solve_timetable(
 # ------------------------------ Streamlit UI --------------------------------
 
 st.set_page_config(page_title="AI Timetable Generator", layout="wide")
-st.title("AI-assisted Timetable Generator — Streamlit Prototype")
+st.title("Time Table Generator")
 
 with st.expander("About this app", expanded=True):
     st.write("Upload your data files (CSV/Excel). Columns expected are listed below each uploader. Use semicolon (;) separated lists for multi-values (e.g., can_teach: ENG101;MAT101).")
