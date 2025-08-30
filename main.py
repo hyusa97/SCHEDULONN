@@ -403,7 +403,7 @@ def login():
             st.session_state["logged_in"] = True
             st.session_state["username"] = username
             st.session_state["role"] = USER_DB[username]["role"]
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Invalid username or password")
 
@@ -412,7 +412,7 @@ def logout():
         for key in ["logged_in", "username", "role"]:
             if key in st.session_state:
                 del st.session_state[key]
-        st.experimental_rerun()
+        st.rerun()
 
 if "logged_in" not in st.session_state or not st.session_state["logged_in"]:
     login()
