@@ -396,16 +396,18 @@ USER_DB = {
 
 def login():
     st.title("Login")
+    user_type = st.radio("Select user type", options=["university", "student", "professor"])
     username = st.text_input("User  ID")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
-        if username in USER_DB and USER_DB[username]["password"] == password:
+        valid_users = {u: info for u, info in USER_DB.items() if info["role"] == user_type}
+        if username in valid_users and valid_users[username]["password"] == password:
             st.session_state["logged_in"] = True
             st.session_state["username"] = username
-            st.session_state["role"] = USER_DB[username]["role"]
+            st.session_state["role"] = user_type
             st.rerun()
         else:
-            st.error("Invalid username or password")
+            st.error("Invalid username or password for selected user type")
 
 def logout():
     if st.button("Logout"):
