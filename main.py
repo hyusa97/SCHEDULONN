@@ -390,7 +390,6 @@ def solve_timetable(
 # Simple user database
 USER_DB = {
     "uv": {"password": "123", "role": "university"},
-    "st": {"password": "321", "role": "student"},
     "pro": {"password": "111", "role": "professor"},
 }
 
@@ -542,9 +541,6 @@ else:
 
         university_ui()
 
-    elif role == "student":
-        st.title("Student Portal")
-        st.write("Welcome to the student portal.")
 
     elif role == "professor":
         st.title("Professor Portal")
