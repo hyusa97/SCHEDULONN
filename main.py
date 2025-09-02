@@ -26,7 +26,7 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 from ortools.sat.python import cp_model
-import bcrypt
+from passlib.hash import bcrypt
 import gspread
 from google.oauth2.service_account import Credentials
 
