@@ -26,6 +26,9 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 from ortools.sat.python import cp_model
+import bcrypt
+import gspread
+from google.oauth2.service_account import Credentials
 
 # ------------------------------- Solver (embedded) -------------------------
 @dataclass
@@ -387,42 +390,102 @@ def solve_timetable(
 
 # ------------------------------ Streamlit UI --------------------------------
 
-# Simple user database
-USER_DB = {
-    "uv": {"password": "123", "role": "university"},
-    "pro": {"password": "111", "role": "professor"},
-}
+# ---------------- CONFIG ----------------
+AUTH_SHEET_ID = st.secrets["sheets"]["AUTH_SHEET_ID"]
+AUTH_SHEET_NAME = "AUTH_SHEET"
 
-def login():
-    st.title("Login")
-    user_type = st.radio("Select user type", options=["university", "professor"])
-    username = st.text_input("User  ID")
-    password = st.text_input("Password", type="password")
-    if st.button("Login"):
-        valid_users = {u: info for u, info in USER_DB.items() if info["role"] == user_type}
-        if username in valid_users and valid_users[username]["password"] == password:
-            st.session_state["logged_in"] = True
-            st.session_state["username"] = username
-            st.session_state["role"] = user_type
-            st.rerun()
+# Fix private key newlines
+creds_dict = dict(st.secrets["gcp_service_account"])
+creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+
+# ---------------- CONNECT TO GOOGLE SHEETS ----------------
+@st.cache_resource
+def connect_to_sheets():
+    try:
+        creds = Credentials.from_service_account_info(
+            creds_dict,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        client = gspread.authorize(creds)
+        AUTH_sheet = client.open_by_key(AUTH_SHEET_ID).worksheet(AUTH_SHEET_NAME)
+        return AUTH_sheet
+    except Exception as e:
+        st.error(f"❌ Failed to connect to Google Sheets: {e}")
+        st.stop()
+
+AUTH_sheet = connect_to_sheets()
+
+# ---------------- LOAD AUTH DATA ----------------
+@st.cache_resource
+def load_auth_data():
+    data = AUTH_sheet.get_all_records()
+    df = pd.DataFrame(data)
+    return df
+
+auth_df = load_auth_data()
+
+# ---------------- PASSWORD VERIFICATION ----------------
+def verify_password(stored_hash, entered_password):
+    try:
+        return bcrypt.checkpw(entered_password.encode(), stored_hash.encode())
+    except Exception:
+        return False
+
+# ---------------- SESSION STATE INIT ----------------
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+    st.session_state.user_role = None
+    st.session_state.username = None
+    st.session_state.user_name = None
+
+# ---------------- LOGIN PAGE ----------------
+if not st.session_state.authenticated:
+    st.title("🔒 Secure Login")
+    username = st.text_input("👤 Username")
+    password = st.text_input("🔑 Password", type="password")
+    login_button = st.button("Login")
+
+    if login_button:
+        user_data = auth_df[auth_df["Username"] == username]
+
+        if not user_data.empty:
+            stored_hash = user_data.iloc[0]["Password"]
+            role = user_data.iloc[0]["Role"]
+            name = user_data.iloc[0]["Name"]
+
+            if verify_password(stored_hash, password):
+                st.session_state.authenticated = True
+                st.session_state.user_role = role
+                st.session_state.username = username
+                st.session_state.user_name = name
+
+                st.experimental_set_query_params(logged_in="true")
+                st.success(f"✅ Welcome, {name}!")
+                st.rerun()
+            else:
+                st.error("❌ Invalid Credentials")
         else:
-            st.error("Invalid username or password for selected user type")
+            st.error("❌ User not found")
 
-def logout():
-    if st.button("Logout"):
-        for key in ["logged_in", "username", "role"]:
-            if key in st.session_state:
-                del st.session_state[key]
+# ---------------- DASHBOARD (AFTER LOGIN) ----------------
+else:
+    st.sidebar.write(f"👤 **Welcome, {st.session_state.user_name}!** ({st.session_state.user_role})")
+    if st.sidebar.button("🚪 Logout"):
+        st.session_state.authenticated = False
+        st.session_state.user_role = None
+        st.session_state.username = None
+        st.session_state.user_name = None
+        st.experimental_set_query_params(logged_in="false")
         st.rerun()
 
-if "logged_in" not in st.session_state or not st.session_state["logged_in"]:
-    login()
-else:
-    role = st.session_state["role"]
-    st.sidebar.write(f"Logged in as: {st.session_state['username']} ({role})")
-    logout()
+    st.title("📊 Dashboard")
+    st.write("This is where your main app content goes...")
 
-    if role == "university":
+
+    if st.session_state.user_role == "university":
         # Paste your entire existing UI code here (from st.set_page_config to the end)
         # For brevity, I will just call a function that you should define with your UI code.
         def university_ui():
@@ -542,7 +605,7 @@ else:
         university_ui()
 
 
-    elif role == "professor":
+    elif st.session_state.user_role == "professor":
         st.title("Professor Portal")
         st.write("Welcome to the professor portal.")
 
