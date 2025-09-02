@@ -1,5 +1,9 @@
-streamlit
+streamlit==1.49.1
+ortools==9.10.4067
 pandas
 openpyxl
 fpdf
-ortools
+passlib[bcrypt]
+gspread
+google-auth
+python-dotenv
