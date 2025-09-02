@@ -3,3 +3,6 @@ pandas
 openpyxl
 fpdf
 ortools
+bcrypt
+gspread
+google.oauth2.service_account
