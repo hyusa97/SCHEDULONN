@@ -3,7 +3,7 @@ ortools==9.10.4067
 pandas
 openpyxl
 fpdf
-passlib[bcrypt]
+bcrypt==4.1.2
 gspread
 google-auth
 python-dotenv
