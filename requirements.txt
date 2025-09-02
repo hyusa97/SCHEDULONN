@@ -1,9 +1,10 @@
-streamlit==1.49.1
-ortools==9.10.4067
+streamlit
 pandas
-openpyxl
-fpdf
-bcrypt==4.1.2
+numpy
+ortools
+bcrypt
 gspread
 google-auth
-python-dotenv
+openpyxl
+reportlab
+
