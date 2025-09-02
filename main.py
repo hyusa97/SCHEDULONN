@@ -607,4 +607,4 @@ else:
 
     elif st.session_state.user_role == "professor":
         st.title("Professor Portal")
-        st.write("Welcome to the {st.session_state.user_name} portal.")
+        
