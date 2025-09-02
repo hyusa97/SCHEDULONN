@@ -4,5 +4,7 @@ pandas
 openpyxl
 fpdf
 bcrypt
+openpyxl
 gspread
 google.oauth2.service_account
+python-dotenv
