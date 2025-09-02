@@ -1,8 +1,8 @@
-streamlit
+streamlit==1.49.1
+ortools==9.10.4067
 pandas
 openpyxl
 fpdf
-ortools
 bcrypt
 gspread
 google.oauth2.service_account
