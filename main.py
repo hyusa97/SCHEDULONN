@@ -575,6 +575,7 @@ def delete_course(SHEET_ID, SHEET_NAME, course_name):
         st.error(f"❌ Failed to delete course: {e}")
 
 
+
     # ---------------- SEMESTER SECTION ----------------
     st.subheader("🎓 Semester")
     if selected_course != "-- Select --":
