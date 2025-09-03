@@ -499,28 +499,81 @@ if st.session_state.user_role == "university":
     st.header("🏫 University Dashboard - SCHEDULONN")
 
     # ---------------- COURSE SECTION ----------------
-    st.subheader("📚 Course")
-    if "courses" not in st.session_state:
-        st.session_state.courses = {}
+    def load_courses(SHEET_ID, SHEET_NAME="COURSE"):
+    """Load courses and semesters from Google Sheets into a dict"""
+    try:
+        creds = Credentials.from_service_account_info(
+            creds_dict,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+        data = sheet.get_all_records()
 
-    course_list = list(st.session_state.courses.keys())
-    selected_course = st.selectbox("Select Course", ["-- Select --"] + course_list)
+        courses = {}
+        for row in data:
+            course = row.get("Course Name")
+            semester = str(row.get("Semester"))
+            if course:
+                if course not in courses:
+                    courses[course] = []
+                if semester not in courses[course]:
+                    courses[course].append(semester)
+        return courses
+    except Exception as e:
+        st.error(f"❌ Failed to load courses: {e}")
+        return {}
+    
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("+ Add Course"):
-            with st.form("add_course_form", clear_on_submit=True):
-                new_course = st.text_input("Course Name")
-                semesters = st.number_input("Number of Semesters", min_value=1, max_value=12, step=1)
-                submitted = st.form_submit_button("OK")
-                if submitted and new_course:
-                    st.session_state.courses[new_course] = [str(i) for i in range(1, semesters + 1)]
-                    st.success(f"✅ Added {new_course} with {semesters} semesters.")
+def save_course(SHEET_ID, SHEET_NAME, course_name, num_semesters):
+    """Append a new course + semesters into Google Sheets"""
+    try:
+        creds = Credentials.from_service_account_info(
+            creds_dict,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
 
-    with col2:
-        if st.button("🗑️ Delete Course") and selected_course != "-- Select --":
-            st.session_state.courses.pop(selected_course, None)
-            st.success(f"🗑️ Deleted course {selected_course}")
+        rows = [[course_name, i] for i in range(1, num_semesters + 1)]
+        sheet.append_rows(rows)
+
+        st.success(f"✅ Added {course_name} with {num_semesters} semesters.")
+    except Exception as e:
+        st.error(f"❌ Failed to save course: {e}")
+    
+
+def delete_course(SHEET_ID, SHEET_NAME, course_name):
+    """Delete a course and all its semesters from Google Sheets"""
+    try:
+        creds = Credentials.from_service_account_info(
+            creds_dict,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+        data = sheet.get_all_values()
+
+        # Keep header row
+        header = data[0]
+        filtered = [row for row in data if row[0] != course_name]
+
+        sheet.clear()
+        sheet.update([header] + filtered)
+
+        st.success(f"🗑️ Deleted course {course_name}")
+    except Exception as e:
+        st.error(f"❌ Failed to delete course: {e}")
+
 
     # ---------------- SEMESTER SECTION ----------------
     st.subheader("🎓 Semester")
