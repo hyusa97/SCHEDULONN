@@ -390,6 +390,12 @@ def solve_timetable(
 
 # ------------------------------ Streamlit UI --------------------------------
 
+## ------------- SHEETS AND IDS --------------------------###
+COURSE_SHEET_ID = "1kx7yI4KQhqptIBj7dR-ECDvghch4BKWQCFH_wURbI80"
+COURSE_SHEET_NAME = "COURSE"
+
+#######
+
 # ---------------- CONFIG ----------------
 AUTH_SHEET_ID = st.secrets["sheets"]["AUTH_SHEET_ID"]
 AUTH_SHEET_NAME = "AUTH_SHEET"
@@ -574,13 +580,11 @@ import io
 if st.session_state.user_role == "university":
     st.header("🏫 University Dashboard - SCHEDULONN")
 
-    SHEET_ID = "1kx7yI4KQhqptIBj7dR-ECDvghch4BKWQCFH_wURbI80"
-    COURSE_SHEET_NAME = "COURSE"
 
         # ---------------- COURSE SECTION ----------------
     st.subheader("📚 Course")
 
-    courses = load_courses(SHEET_ID, COURSE_SHEET_NAME)
+    courses = load_courses(COURSE_SHEET_ID, COURSE_SHEET_NAME)
     course_list = list(courses.keys())
 
     selected_course = st.selectbox("Select Course", ["-- Select --"] + course_list)
@@ -594,12 +598,12 @@ if st.session_state.user_role == "university":
                 semesters = st.number_input("Number of Semesters", min_value=1, max_value=12, step=1)
                 submitted = st.form_submit_button("OK")
                 if submitted and new_course:
-                    save_course(SHEET_ID, COURSE_SHEET_NAME, new_course, semesters)
+                    save_course(COURSE_SHEET_ID, COURSE_SHEET_NAME, new_course, semesters)
                     st.rerun()
 
     with col2:
         if st.button("🗑 Delete Course") and selected_course != "-- Select --":
-            delete_course(SHEET_ID, COURSE_SHEET_NAME, selected_course)
+            delete_course(COURSE_SHEET_ID, COURSE_SHEET_NAME, selected_course)
             st.rerun()
 
         # ---------------- SEMESTER SECTION ----------------
