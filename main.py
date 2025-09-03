@@ -457,17 +457,20 @@ def load_courses(SHEET_ID, SHEET_NAME="COURSE"):
 
         courses = {}
         for row in data:
-            course = row.get("Course Name")
-            semester = str(row.get("Semester"))
+            # normalize keys to avoid case mismatch
+            normalized = {k.strip().lower(): v for k, v in row.items()}
+            course = normalized.get("course name")
+            semester = str(normalized.get("semester"))
             if course:
                 if course not in courses:
                     courses[course] = []
-                if semester not in courses[course]:
+                if semester and semester not in courses[course]:
                     courses[course].append(semester)
         return courses
     except Exception as e:
         st.error(f"❌ Failed to load courses: {e}")
         return {}
+
     
 
 def save_course(SHEET_ID, SHEET_NAME, course_name, num_semesters):
@@ -483,12 +486,14 @@ def save_course(SHEET_ID, SHEET_NAME, course_name, num_semesters):
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
 
+        # match your headers: Course Name | semester
         rows = [[course_name, i] for i in range(1, num_semesters + 1)]
-        sheet.append_rows(rows)
+        sheet.append_rows(rows, value_input_option="RAW")
 
         st.success(f"✅ Added {course_name} with {num_semesters} semesters.")
     except Exception as e:
         st.error(f"❌ Failed to save course: {e}")
+
     
 
 def delete_course(SHEET_ID, SHEET_NAME, course_name):
@@ -580,8 +585,7 @@ import io
 if st.session_state.user_role == "university":
     st.header("🏫 University Dashboard - SCHEDULONN")
 
-
-        # ---------------- COURSE SECTION ----------------
+    # ---------------- COURSE SECTION ----------------
     st.subheader("📚 Course")
 
     courses = load_courses(COURSE_SHEET_ID, COURSE_SHEET_NAME)
@@ -589,29 +593,29 @@ if st.session_state.user_role == "university":
 
     selected_course = st.selectbox("Select Course", ["-- Select --"] + course_list)
 
-    col1, col2 = st.columns(2)
+    # Add course form (always visible)
+    with st.form("add_course_form", clear_on_submit=True):
+        st.markdown("**➕ Add New Course**")
+        new_course = st.text_input("Course Name")
+        semesters = st.number_input("Number of Semesters", min_value=1, max_value=12, step=1)
+        submitted = st.form_submit_button("Add")
+        if submitted and new_course:
+            save_course(COURSE_SHEET_ID, COURSE_SHEET_NAME, new_course, semesters)
+            st.rerun()
 
-    with col1:
-        if st.button("+ Add Course"):
-            with st.form("add_course_form", clear_on_submit=True):
-                new_course = st.text_input("Course Name")
-                semesters = st.number_input("Number of Semesters", min_value=1, max_value=12, step=1)
-                submitted = st.form_submit_button("OK")
-                if submitted and new_course:
-                    save_course(COURSE_SHEET_ID, COURSE_SHEET_NAME, new_course, semesters)
-                    st.rerun()
-
-    with col2:
-        if st.button("🗑 Delete Course") and selected_course != "-- Select --":
+    # Delete course
+    if selected_course != "-- Select --":
+        if st.button("🗑 Delete Selected Course"):
             delete_course(COURSE_SHEET_ID, COURSE_SHEET_NAME, selected_course)
             st.rerun()
 
-        # ---------------- SEMESTER SECTION ----------------
+    # ---------------- SEMESTER SECTION ----------------
     st.subheader("🎓 Semester")
     if selected_course != "-- Select --":
         semester = st.selectbox("Select Semester", courses[selected_course])
     else:
         st.info("Please select a course to choose semesters.")
+
 
 
     # ---------------- FILE UPLOADS (Google Sheets Integration) ----------------
