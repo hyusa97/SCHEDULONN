@@ -568,8 +568,3 @@ if st.session_state.user_role == "university":
 
     if st.button("Save Slot Config"):
         st.success("✅ Slot configuration saved successfully.")
-
-
-    elif st.session_state.user_role == "professor":
-        st.title("Professor Portal")
-        
