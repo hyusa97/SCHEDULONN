@@ -26,6 +26,9 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 from ortools.sat.python import cp_model
+import bcrypt
+import gspread
+from google.oauth2.service_account import Credentials
 
 # ------------------------------- Solver (embedded) -------------------------
 @dataclass
@@ -387,115 +390,221 @@ def solve_timetable(
 
 # ------------------------------ Streamlit UI --------------------------------
 
-st.set_page_config(page_title="AI Timetable Generator", layout="wide")
-st.title("AI-assisted Timetable Generator — Streamlit Prototype")
+# ---------------- CONFIG ----------------
+AUTH_SHEET_ID = st.secrets["sheets"]["AUTH_SHEET_ID"]
+AUTH_SHEET_NAME = "AUTH_SHEET"
 
-with st.expander("About this app", expanded=True):
-    st.write("Upload your data files (CSV/Excel). Columns expected are listed below each uploader. Use semicolon (;) separated lists for multi-values (e.g., can_teach: ENG101;MAT101).")
+# Fix private key newlines
+creds_dict = dict(st.secrets["gcp_service_account"])
+creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
 
-col1, col2 = st.columns([2,1])
+# ---------------- CONNECT TO GOOGLE SHEETS ----------------
+@st.cache_resource
+def connect_to_sheets():
+    try:
+        creds = Credentials.from_service_account_info(
+            creds_dict,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        client = gspread.authorize(creds)
+        AUTH_sheet = client.open_by_key(AUTH_SHEET_ID).worksheet(AUTH_SHEET_NAME)
+        return AUTH_sheet
+    except Exception as e:
+        st.error(f"❌ Failed to connect to Google Sheets: {e}")
+        st.stop()
 
-with col1:
-    st.subheader("Upload data files")
-    courses_file = st.file_uploader("Courses (CSV/XLSX)", type=["csv","xlsx"], key="courses")
-    sections_file = st.file_uploader("Sections (CSV/XLSX)", type=["csv","xlsx"], key="sections")
-    faculties_file = st.file_uploader("Faculties (CSV/XLSX)", type=["csv","xlsx"], key="faculties")
-    rooms_file = st.file_uploader("Rooms (CSV/XLSX)", type=["csv","xlsx"], key="rooms")
-    fixed_file = st.file_uploader("Fixed events (optional)", type=["csv","xlsx"], key="fixed")
+AUTH_sheet = connect_to_sheets()
 
-with col2:
-    st.subheader("Slot configuration")
-    days_text = st.text_input("Days (comma separated)", value="Mon,Tue,Wed,Thu,Fri")
-    slots_per_day = st.number_input("Slots per day", min_value=3, max_value=10, value=6)
-    time_limit = st.number_input("Solver time limit (seconds)", min_value=5, max_value=300, value=30)
+# ---------------- LOAD AUTH DATA ----------------
+@st.cache_resource
+def load_auth_data():
+    data = AUTH_sheet.get_all_records()
+    df = pd.DataFrame(data)
+    return df
 
-if courses_file and sections_file and faculties_file and rooms_file:
-    def load_df(f):
-        if f.name.endswith('.csv'):
-            return pd.read_csv(f)
+auth_df = load_auth_data()
+
+# ---------------- PASSWORD VERIFICATION ----------------
+def verify_password(stored_hash, entered_password):
+    try:
+        return bcrypt.checkpw(entered_password.encode(), stored_hash.encode())
+    except Exception:
+        return False
+
+# ---------------- SESSION STATE INIT ----------------
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+    st.session_state.user_role = None
+    st.session_state.username = None
+    st.session_state.user_name = None
+
+# ---------------- LOGIN PAGE ----------------
+if not st.session_state.authenticated:
+    st.title("🔒 Secure Login")
+    username = st.text_input("👤 Username")
+    password = st.text_input("🔑 Password", type="password")
+    login_button = st.button("Login")
+
+    if login_button:
+        user_data = auth_df[auth_df["Username"] == username]
+
+        if not user_data.empty:
+            stored_hash = user_data.iloc[0]["Password"]
+            role = user_data.iloc[0]["Role"]
+            name = user_data.iloc[0]["Name"]
+
+            if verify_password(stored_hash, password):
+                st.session_state.authenticated = True
+                st.session_state.user_role = role
+                st.session_state.username = username
+                st.session_state.user_name = name
+
+                st.experimental_set_query_params(logged_in="true")
+                st.success(f"✅ Welcome, {name}!")
+                st.rerun()
+            else:
+                st.error("❌ Invalid Credentials")
         else:
-            return pd.read_excel(f)
+            st.error("❌ User not found")
 
-    courses_df = load_df(courses_file)
-    sections_df = load_df(sections_file)
-    faculties_df = load_df(faculties_file)
-    rooms_df = load_df(rooms_file)
-    fixed_df = load_df(fixed_file) if fixed_file else None
-
-    st.success("Files loaded — preview below")
-    with st.expander("Preview data frames (courses) "):
-        st.dataframe(courses_df)
-    with st.expander("Preview (sections)"):
-        st.dataframe(sections_df)
-    with st.expander("Preview (faculties)"):
-        st.dataframe(faculties_df)
-    with st.expander("Preview (rooms)"):
-        st.dataframe(rooms_df)
-    if fixed_df is not None:
-        with st.expander("Preview (fixed events)"):
-            st.dataframe(fixed_df)
-
-    days = [d.strip() for d in days_text.split(",") if d.strip()]
-    slots = [(d, i) for d in days for i in range(1, int(slots_per_day)+1)]
-
-    if st.button("Generate Timetable"):
-        with st.spinner("Solving... this may take a while depending on problem size"):
-            try:
-                result_df, status = solve_timetable(
-                    courses_df=courses_df,
-                    sections_df=sections_df,
-                    faculties_df=faculties_df,
-                    rooms_df=rooms_df,
-                    slots=slots,
-                    fixed_events_df=fixed_df,
-                    time_limit_sec=int(time_limit),
-                )
-                st.write("Solver status:", status)
-                if result_df.empty:
-                    st.warning("No assignments found — check input data, availabilities, and hours_per_week values.")
-                else:
-                    st.success("Timetable generated")
-                    st.dataframe(result_df)
-
-                    # Download as Excel
-                    towrite = io.BytesIO()
-                    with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
-                        result_df.to_excel(writer, index=False, sheet_name='timetable')
-                    towrite.seek(0)
-                    st.download_button("Download timetable (Excel)", data=towrite, file_name="timetable.xlsx")
-
-                    # Download as CSV
-                    csv = result_df.to_csv(index=False).encode('utf-8')
-                    st.download_button("Download timetable (CSV)", data=csv, file_name="timetable.csv")
-
-                    # Simple PDF export using reportlab
-                    try:
-                        from reportlab.lib.pagesizes import A4
-                        from reportlab.pdfgen import canvas
-                        pdf_bytes = io.BytesIO()
-                        c = canvas.Canvas(pdf_bytes, pagesize=A4)
-                        text = c.beginText(40, 800)
-                        text.setFont("Helvetica", 10)
-                        for i, row in result_df.iterrows():
-                            line = f"{row['cohort']} | {row['day']}-{row['slot']} | {row['course_id']} ({row['course_name']}) | {row['faculty_id']} | {row['room_id']}"
-                            text.textLine(line)
-                            if text.getY() < 40:
-                                c.drawText(text)
-                                c.showPage()
-                                text = c.beginText(40, 800)
-                                text.setFont("Helvetica", 10)
-                        c.drawText(text)
-                        c.save()
-                        pdf_bytes.seek(0)
-                        st.download_button("Download timetable (PDF)", data=pdf_bytes, file_name="timetable.pdf")
-                    except Exception as e:
-                        st.info("PDF export not available (install reportlab).")
-
-            except Exception as e:
-                st.error(f"Error while solving: {e}")
-
+# ---------------- DASHBOARD (AFTER LOGIN) ----------------
 else:
-    st.info("Please upload Courses, Sections, Faculties, and Rooms files to continue.")
+    st.sidebar.write(f"👤 **Welcome, {st.session_state.user_name}!** ({st.session_state.user_role})")
+    if st.sidebar.button("🚪 Logout"):
+        st.session_state.authenticated = False
+        st.session_state.user_role = None
+        st.session_state.username = None
+        st.session_state.user_name = None
+        st.experimental_set_query_params(logged_in="false")
+        st.rerun()
 
-st.markdown("---")
-st.caption("Prototype: tweak constraints, soft weights and model parameters in code for better university-specific behaviour.")
+    st.title("📊 Dashboard")
+    st.write("This is where your main app content goes...")
+
+
+    if st.session_state.user_role == "university":
+        # Paste your entire existing UI code here (from st.set_page_config to the end)
+        # For brevity, I will just call a function that you should define with your UI code.
+        def university_ui():
+            st.set_page_config(page_title="AI Timetable Generator", layout="wide")
+            st.title("Time Table Generator")
+
+            with st.expander("About this app", expanded=True):
+                st.write("Upload your data files (CSV/Excel). Columns expected are listed below each uploader. Use semicolon (;) separated lists for multi-values (e.g., can_teach: ENG101;MAT101).")
+
+            col1, col2 = st.columns([2,1])
+
+            with col1:
+                st.subheader("Upload data files")
+                courses_file = st.file_uploader("Courses (CSV/XLSX)", type=["csv","xlsx"], key="courses")
+                sections_file = st.file_uploader("Sections (CSV/XLSX)", type=["csv","xlsx"], key="sections")
+                faculties_file = st.file_uploader("Faculties (CSV/XLSX)", type=["csv","xlsx"], key="faculties")
+                rooms_file = st.file_uploader("Rooms (CSV/XLSX)", type=["csv","xlsx"], key="rooms")
+                fixed_file = st.file_uploader("Fixed events (optional)", type=["csv","xlsx"], key="fixed")
+
+            with col2:
+                st.subheader("Slot configuration")
+                days_text = st.text_input("Days (comma separated)", value="Mon,Tue,Wed,Thu,Fri")
+                slots_per_day = st.number_input("Slots per day", min_value=3, max_value=10, value=6)
+                time_limit = st.number_input("Solver time limit (seconds)", min_value=5, max_value=300, value=30)
+
+            if courses_file and sections_file and faculties_file and rooms_file:
+                def load_df(f):
+                    if f.name.endswith('.csv'):
+                        return pd.read_csv(f)
+                    else:
+                        return pd.read_excel(f)
+
+                courses_df = load_df(courses_file)
+                sections_df = load_df(sections_file)
+                faculties_df = load_df(faculties_file)
+                rooms_df = load_df(rooms_file)
+                fixed_df = load_df(fixed_file) if fixed_file else None
+
+                st.success("Files loaded — preview below")
+                with st.expander("Preview data frames (courses) "):
+                    st.dataframe(courses_df)
+                with st.expander("Preview (sections)"):
+                    st.dataframe(sections_df)
+                with st.expander("Preview (faculties)"):
+                    st.dataframe(faculties_df)
+                with st.expander("Preview (rooms)"):
+                    st.dataframe(rooms_df)
+                if fixed_df is not None:
+                    with st.expander("Preview (fixed events)"):
+                        st.dataframe(fixed_df)
+
+                days = [d.strip() for d in days_text.split(",") if d.strip()]
+                slots = [(d, i) for d in days for i in range(1, int(slots_per_day)+1)]
+
+                if st.button("Generate Timetable"):
+                    with st.spinner("Solving... this may take a while depending on problem size"):
+                        try:
+                            result_df, status = solve_timetable(
+                                courses_df=courses_df,
+                                sections_df=sections_df,
+                                faculties_df=faculties_df,
+                                rooms_df=rooms_df,
+                                slots=slots,
+                                fixed_events_df=fixed_df,
+                                time_limit_sec=int(time_limit),
+                            )
+                            st.write("Solver status:", status)
+                            if result_df.empty:
+                                st.warning("No assignments found — check input data, availabilities, and hours_per_week values.")
+                            else:
+                                st.success("Timetable generated")
+                                st.dataframe(result_df)
+
+                                # Download as Excel
+                                towrite = io.BytesIO()
+                                with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
+                                    result_df.to_excel(writer, index=False, sheet_name='timetable')
+                                towrite.seek(0)
+                                st.download_button("Download timetable (Excel)", data=towrite, file_name="timetable.xlsx")
+
+                                # Download as CSV
+                                csv = result_df.to_csv(index=False).encode('utf-8')
+                                st.download_button("Download timetable (CSV)", data=csv, file_name="timetable.csv")
+
+                                # Simple PDF export using reportlab
+                                try:
+                                    from reportlab.lib.pagesizes import A4
+                                    from reportlab.pdfgen import canvas
+                                    pdf_bytes = io.BytesIO()
+                                    c = canvas.Canvas(pdf_bytes, pagesize=A4)
+                                    text = c.beginText(40, 800)
+                                    text.setFont("Helvetica", 10)
+                                    for i, row in result_df.iterrows():
+                                        line = f"{row['cohort']} | {row['day']}-{row['slot']} | {row['course_id']} ({row['course_name']}) | {row['faculty_id']} | {row['room_id']}"
+                                        text.textLine(line)
+                                        if text.getY() < 40:
+                                            c.drawText(text)
+                                            c.showPage()
+                                            text = c.beginText(40, 800)
+                                            text.setFont("Helvetica", 10)
+                                    c.drawText(text)
+                                    c.save()
+                                    pdf_bytes.seek(0)
+                                    st.download_button("Download timetable (PDF)", data=pdf_bytes, file_name="timetable.pdf")
+                                except Exception:
+                                    st.info("PDF export not available (install reportlab).")
+
+                        except Exception as e:
+                            st.error(f"Error while solving: {e}")
+
+            else:
+                st.info("Please upload Courses, Sections, Faculties, and Rooms files to continue.")
+
+            st.markdown("---")
+            st.caption("Prototype: tweak constraints, soft weights and model parameters in code for better university-specific behaviour.")
+
+        university_ui()
+
+
+    elif st.session_state.user_role == "professor":
+        st.title("Professor Portal")
+        

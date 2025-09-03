@@ -1,5 +1,10 @@
 streamlit
 pandas
-openpyxl
-fpdf
+numpy
 ortools
+bcrypt
+gspread
+google-auth
+openpyxl
+reportlab
+
