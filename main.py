@@ -498,17 +498,15 @@ import io
 if st.session_state.user_role == "university":
     st.header("🏫 University Dashboard - SCHEDULONN")
 
-    # ---------------- COURSE SECTION ----------------
+ 
 
+    # ---------------- COURSE SECTION ----------------
+ 
 
 
 
     # ---------------- SEMESTER SECTION ----------------
-    st.subheader("🎓 Semester")
-    if selected_course != "-- Select --":
-        semester = st.selectbox("Select Semester", st.session_state.courses[selected_course])
-    else:
-        st.info("Please select a course to choose semesters.")
+
 
     # ---------------- FILE UPLOADS (Google Sheets Integration) ----------------
     def upload_to_sheets(uploaded_file, sheet_name, SHEET_ID):
