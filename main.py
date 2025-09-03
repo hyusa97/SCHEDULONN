@@ -612,9 +612,19 @@ if st.session_state.user_role == "university":
     # ---------------- SEMESTER SECTION ----------------
     st.subheader("🎓 Semester")
     if selected_course != "-- Select --":
-        semester = st.selectbox("Select Semester", courses[selected_course])
+    # get max semester value for this course
+        sem_values = courses[selected_course]
+        if sem_values:
+            max_sem = max(map(int, sem_values))  # convert list of strings to int
+            selected_semester = st.selectbox(
+                "Select Semester",
+                list(range(1, max_sem + 1))
+            )
+        else:
+            st.info("No semesters found for this course.")
     else:
         st.info("Please select a course to choose semesters.")
+
 
 
 
