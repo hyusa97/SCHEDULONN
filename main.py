@@ -390,6 +390,12 @@ def solve_timetable(
 
 # ------------------------------ Streamlit UI --------------------------------
 
+## ------------- SHEETS AND IDS --------------------------###
+COURSE_SHEET_ID = "1kx7yI4KQhqptIBj7dR-ECDvghch4BKWQCFH_wURbI80"
+COURSE_SHEET_NAME = "COURSE"
+
+#######
+
 # ---------------- CONFIG ----------------
 AUTH_SHEET_ID = st.secrets["sheets"]["AUTH_SHEET_ID"]
 AUTH_SHEET_NAME = "AUTH_SHEET"
@@ -433,6 +439,87 @@ def verify_password(stored_hash, entered_password):
         return bcrypt.checkpw(entered_password.encode(), stored_hash.encode())
     except Exception:
         return False
+    
+##----------------- COURSE MANAGEMENT FUNCTION ------------------------## 
+def load_courses(SHEET_ID, SHEET_NAME="COURSE"):
+    """Load courses and semesters from Google Sheets into a dict"""
+    try:
+        creds = Credentials.from_service_account_info(
+            creds_dict,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+        data = sheet.get_all_records()
+
+        courses = {}
+        for row in data:
+            # normalize keys to avoid case mismatch
+            normalized = {k.strip().lower(): v for k, v in row.items()}
+            course = normalized.get("course name")
+            semester = str(normalized.get("semester"))
+            if course:
+                if course not in courses:
+                    courses[course] = []
+                if semester and semester not in courses[course]:
+                    courses[course].append(semester)
+        return courses
+    except Exception as e:
+        st.error(f"❌ Failed to load courses: {e}")
+        return {}
+
+    
+
+def save_course(SHEET_ID, SHEET_NAME, course_name, num_semesters):
+    """Append a new course + semesters into Google Sheets"""
+    try:
+        creds = Credentials.from_service_account_info(
+            creds_dict,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+
+        # match your headers: Course Name | semester
+        rows = [[course_name, i] for i in range(1, num_semesters + 1)]
+        sheet.append_rows(rows, value_input_option="RAW")
+
+        st.success(f"✅ Added {course_name} with {num_semesters} semesters.")
+    except Exception as e:
+        st.error(f"❌ Failed to save course: {e}")
+
+    
+
+def delete_course(SHEET_ID, SHEET_NAME, course_name):
+    """Delete a course and all its semesters from Google Sheets"""
+    try:
+        creds = Credentials.from_service_account_info(
+            creds_dict,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+        data = sheet.get_all_values()
+
+        # Keep header row
+        header = data[0]
+        filtered = [row for row in data if row[0] != course_name]
+
+        sheet.clear()
+        sheet.update([header] + filtered)
+
+        st.success(f"🗑 Deleted course {course_name}")
+    except Exception as e:
+        st.error(f"❌ Failed to delete course: {e}")
 
 # ---------------- SESSION STATE INIT ----------------
 if "authenticated" not in st.session_state:
@@ -484,127 +571,124 @@ else:
     st.title("📊 Dashboard")
     st.write("This is where your main app content goes...")
 
+import streamlit as st
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
+import bcrypt
+import io
 
-    if st.session_state.user_role == "university":
-        # Paste your entire existing UI code here (from st.set_page_config to the end)
-        # For brevity, I will just call a function that you should define with your UI code.
-        def university_ui():
-            st.set_page_config(page_title="AI Timetable Generator", layout="wide")
-            st.title("Time Table Generator")
+# ------------------------------ EXISTING LOGIN/DASHBOARD CODE ABOVE ------------------------------
+# (Keep your login/auth code as is)
 
-            with st.expander("About this app", expanded=True):
-                st.write("Upload your data files (CSV/Excel). Columns expected are listed below each uploader. Use semicolon (;) separated lists for multi-values (e.g., can_teach: ENG101;MAT101).")
+# ------------------------------ UNIVERSITY LANDING PAGE ------------------------------
+if st.session_state.user_role == "university":
+    st.header("🏫 University Dashboard - SCHEDULONN")
 
-            col1, col2 = st.columns([2,1])
+    # ---------------- COURSE SECTION ----------------
+    st.subheader("📚 Course")
 
-            with col1:
-                st.subheader("Upload data files")
-                courses_file = st.file_uploader("Courses (CSV/XLSX)", type=["csv","xlsx"], key="courses")
-                sections_file = st.file_uploader("Sections (CSV/XLSX)", type=["csv","xlsx"], key="sections")
-                faculties_file = st.file_uploader("Faculties (CSV/XLSX)", type=["csv","xlsx"], key="faculties")
-                rooms_file = st.file_uploader("Rooms (CSV/XLSX)", type=["csv","xlsx"], key="rooms")
-                fixed_file = st.file_uploader("Fixed events (optional)", type=["csv","xlsx"], key="fixed")
+    courses = load_courses(COURSE_SHEET_ID, COURSE_SHEET_NAME)
+    course_list = list(courses.keys())
 
-            with col2:
-                st.subheader("Slot configuration")
-                days_text = st.text_input("Days (comma separated)", value="Mon,Tue,Wed,Thu,Fri")
-                slots_per_day = st.number_input("Slots per day", min_value=3, max_value=10, value=6)
-                time_limit = st.number_input("Solver time limit (seconds)", min_value=5, max_value=300, value=30)
+    selected_course = st.selectbox("Select Course", ["-- Select --"] + course_list)
 
-            if courses_file and sections_file and faculties_file and rooms_file:
-                def load_df(f):
-                    if f.name.endswith('.csv'):
-                        return pd.read_csv(f)
-                    else:
-                        return pd.read_excel(f)
+    # Add course form (always visible)
+    with st.form("add_course_form", clear_on_submit=True):
+        st.markdown("**➕ Add New Course**")
+        new_course = st.text_input("Course Name")
+        semesters = st.number_input("Number of Semesters", min_value=1, max_value=12, step=1)
+        submitted = st.form_submit_button("Add")
+        if submitted and new_course:
+            save_course(COURSE_SHEET_ID, COURSE_SHEET_NAME, new_course, semesters)
+            st.rerun()
 
-                courses_df = load_df(courses_file)
-                sections_df = load_df(sections_file)
-                faculties_df = load_df(faculties_file)
-                rooms_df = load_df(rooms_file)
-                fixed_df = load_df(fixed_file) if fixed_file else None
+    # Delete course
+    if selected_course != "-- Select --":
+        if st.button("🗑 Delete Selected Course"):
+            delete_course(COURSE_SHEET_ID, COURSE_SHEET_NAME, selected_course)
+            st.rerun()
 
-                st.success("Files loaded — preview below")
-                with st.expander("Preview data frames (courses) "):
-                    st.dataframe(courses_df)
-                with st.expander("Preview (sections)"):
-                    st.dataframe(sections_df)
-                with st.expander("Preview (faculties)"):
-                    st.dataframe(faculties_df)
-                with st.expander("Preview (rooms)"):
-                    st.dataframe(rooms_df)
-                if fixed_df is not None:
-                    with st.expander("Preview (fixed events)"):
-                        st.dataframe(fixed_df)
-
-                days = [d.strip() for d in days_text.split(",") if d.strip()]
-                slots = [(d, i) for d in days for i in range(1, int(slots_per_day)+1)]
-
-                if st.button("Generate Timetable"):
-                    with st.spinner("Solving... this may take a while depending on problem size"):
-                        try:
-                            result_df, status = solve_timetable(
-                                courses_df=courses_df,
-                                sections_df=sections_df,
-                                faculties_df=faculties_df,
-                                rooms_df=rooms_df,
-                                slots=slots,
-                                fixed_events_df=fixed_df,
-                                time_limit_sec=int(time_limit),
-                            )
-                            st.write("Solver status:", status)
-                            if result_df.empty:
-                                st.warning("No assignments found — check input data, availabilities, and hours_per_week values.")
-                            else:
-                                st.success("Timetable generated")
-                                st.dataframe(result_df)
-
-                                # Download as Excel
-                                towrite = io.BytesIO()
-                                with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
-                                    result_df.to_excel(writer, index=False, sheet_name='timetable')
-                                towrite.seek(0)
-                                st.download_button("Download timetable (Excel)", data=towrite, file_name="timetable.xlsx")
-
-                                # Download as CSV
-                                csv = result_df.to_csv(index=False).encode('utf-8')
-                                st.download_button("Download timetable (CSV)", data=csv, file_name="timetable.csv")
-
-                                # Simple PDF export using reportlab
-                                try:
-                                    from reportlab.lib.pagesizes import A4
-                                    from reportlab.pdfgen import canvas
-                                    pdf_bytes = io.BytesIO()
-                                    c = canvas.Canvas(pdf_bytes, pagesize=A4)
-                                    text = c.beginText(40, 800)
-                                    text.setFont("Helvetica", 10)
-                                    for i, row in result_df.iterrows():
-                                        line = f"{row['cohort']} | {row['day']}-{row['slot']} | {row['course_id']} ({row['course_name']}) | {row['faculty_id']} | {row['room_id']}"
-                                        text.textLine(line)
-                                        if text.getY() < 40:
-                                            c.drawText(text)
-                                            c.showPage()
-                                            text = c.beginText(40, 800)
-                                            text.setFont("Helvetica", 10)
-                                    c.drawText(text)
-                                    c.save()
-                                    pdf_bytes.seek(0)
-                                    st.download_button("Download timetable (PDF)", data=pdf_bytes, file_name="timetable.pdf")
-                                except Exception:
-                                    st.info("PDF export not available (install reportlab).")
-
-                        except Exception as e:
-                            st.error(f"Error while solving: {e}")
-
-            else:
-                st.info("Please upload Courses, Sections, Faculties, and Rooms files to continue.")
-
-            st.markdown("---")
-            st.caption("Prototype: tweak constraints, soft weights and model parameters in code for better university-specific behaviour.")
-
-        university_ui()
+    # ---------------- SEMESTER SECTION ----------------
+    st.subheader("🎓 Semester")
+    if selected_course != "-- Select --":
+    # get max semester value for this course
+        sem_values = courses[selected_course]
+        if sem_values:
+            max_sem = max(map(int, sem_values))  # convert list of strings to int
+            selected_semester = st.selectbox(
+                "Select Semester",
+                list(range(1, max_sem + 1))
+            )
+        else:
+            st.info("No semesters found for this course.")
+    else:
+        st.info("Please select a course to choose semesters.")
 
 
-    elif st.session_state.user_role == "professor":
-        st.title("Professor Portal")
-        
+
+
+    # ---------------- FILE UPLOADS (Google Sheets Integration) ----------------
+    def upload_to_sheets(uploaded_file, sheet_name, SHEET_ID):
+        if uploaded_file is not None:
+            df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith(".xlsx") else pd.read_csv(uploaded_file)
+            try:
+                creds = Credentials.from_service_account_info(
+                    creds_dict,
+                    scopes=[
+                        "https://www.googleapis.com/auth/spreadsheets",
+                        "https://www.googleapis.com/auth/drive",
+                    ],
+                )
+                client = gspread.authorize(creds)
+                sheet = client.open_by_key(SHEET_ID).worksheet(sheet_name)
+                sheet.clear()
+                sheet.update([df.columns.values.tolist()] + df.values.tolist())
+                st.success(f"✅ Successfully uploaded {uploaded_file.name} to {sheet_name}")
+            except Exception as e:
+                st.error(f"❌ Failed to upload {uploaded_file.name}: {e}")
+
+    SHEET_ID = "1kx7yI4KQhqptIBj7dR-ECDvghch4BKWQCFH_wURbI80"
+
+    st.subheader("👥 Group / Batch Details")
+    group_file = st.file_uploader("Upload Group/Batch CSV or Excel", type=["csv", "xlsx"])
+    if st.button("Upload Group File"):
+        upload_to_sheets(group_file, "GroupBatch", SHEET_ID)
+
+    st.subheader("👨‍🏫 Professor Details")
+    prof_file = st.file_uploader("Upload Professor CSV or Excel", type=["csv", "xlsx"])
+    if st.button("Upload Professor File"):
+        upload_to_sheets(prof_file, "Professors", SHEET_ID)
+
+    st.subheader("🏛️ Classroom Details")
+    class_file = st.file_uploader("Upload Classroom CSV or Excel", type=["csv", "xlsx"])
+    if st.button("Upload Classroom File"):
+        upload_to_sheets(class_file, "Classrooms", SHEET_ID)
+
+    # ---------------- SLOT SECTION ----------------
+    st.subheader("⏰ Slot Settings")
+
+    # Step 1: Working Days
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    num_days = st.selectbox("Number of working days per week", list(range(1, 8)), index=4)
+    selected_days = days[:num_days]
+    st.write("📅 Active Days:", selected_days)
+
+    # Step 2: Working Hours
+    num_hours = st.selectbox("Number of working hours per day", list(range(1, 13)), index=5)
+    time_slots = [f"{8+i:02d}:00" for i in range(num_hours)]
+    st.write("⏱️ Time Slots:", time_slots)
+
+    # Step 3: Breaks
+    st.write("🍴 Break Times (X = Break, Empty = Allowed)")
+    break_table = pd.DataFrame("", index=time_slots, columns=selected_days)
+
+    edited_breaks = st.data_editor(break_table, num_rows="dynamic", key="breaks")
+    st.caption("⚡ Use X to mark breaks. Breaks do not create free gaps for teachers or students.")
+
+    if st.button("Save Slot Config"):
+        st.success("✅ Slot configuration saved successfully.")
+
+
+elif st.session_state.user_role == "professor":
+    st.title("Professor Portal")
